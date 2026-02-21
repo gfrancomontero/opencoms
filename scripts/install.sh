@@ -177,9 +177,27 @@ fi
 
 # Start Ollama if not running
 if ! curl -s http://127.0.0.1:11434/api/tags &>/dev/null; then
-  verbose "Starting Ollama..."
+  info "Starting Ollama service..."
   ollama serve &>/dev/null &
-  sleep 3
+  OLLAMA_PID=$!
+
+  # Wait up to 30 seconds for Ollama to be ready
+  OLLAMA_READY=0
+  for i in $(seq 1 30); do
+    if curl -s http://127.0.0.1:11434/api/tags &>/dev/null; then
+      OLLAMA_READY=1
+      break
+    fi
+    sleep 1
+    verbose "Waiting for Ollama to start... ($i/30)"
+  done
+
+  if [ "$OLLAMA_READY" = "0" ]; then
+    fail "Ollama failed to start within 30 seconds." "Try running 'ollama serve' manually in another terminal, then re-run the installer."
+  fi
+  info "Ollama is running"
+else
+  info "Ollama is already running"
 fi
 
 # ─────────────────────────────────────────────
@@ -227,22 +245,52 @@ info "Embedding model ready"
 # ─────────────────────────────────────────────
 step 6 "Validating installation..."
 
-# Create CLI symlink
+# Create CLI symlink — try /usr/local/bin first, fall back to shell alias
 SYMLINK_PATH="/usr/local/bin/opencoms"
+SYMLINK_CREATED=0
+
 if [ -L "$SYMLINK_PATH" ] || [ -f "$SYMLINK_PATH" ]; then
-  rm -f "$SYMLINK_PATH"
+  rm -f "$SYMLINK_PATH" 2>/dev/null || true
 fi
 
 mkdir -p /usr/local/bin 2>/dev/null || true
-ln -sf "$APP_DIR/bin/opencoms" "$SYMLINK_PATH" 2>/dev/null || {
-  warn "Could not create global symlink. You can run OpenComs with: node $APP_DIR/bin/opencoms"
-}
+if ln -sf "$APP_DIR/bin/opencoms" "$SYMLINK_PATH" 2>/dev/null; then
+  SYMLINK_CREATED=1
+  info "CLI symlink created at $SYMLINK_PATH"
+fi
+
+# Also add a shell alias/PATH entry so it's always available
+SHELL_RC=""
+if [ -f "$HOME/.zshrc" ]; then
+  SHELL_RC="$HOME/.zshrc"
+elif [ -f "$HOME/.bashrc" ]; then
+  SHELL_RC="$HOME/.bashrc"
+elif [ -f "$HOME/.bash_profile" ]; then
+  SHELL_RC="$HOME/.bash_profile"
+fi
+
+if [ -n "$SHELL_RC" ]; then
+  # Remove any old opencoms entries
+  if grep -q "opencoms" "$SHELL_RC" 2>/dev/null; then
+    grep -v "opencoms" "$SHELL_RC" > "$SHELL_RC.tmp" && mv "$SHELL_RC.tmp" "$SHELL_RC"
+  fi
+
+  # Add alias that always works
+  echo "" >> "$SHELL_RC"
+  echo "# OpenComs — Private Document Chat" >> "$SHELL_RC"
+  echo "alias opencoms='node $APP_DIR/bin/opencoms'" >> "$SHELL_RC"
+  info "Shell alias added to $(basename "$SHELL_RC")"
+fi
+
+# Make it available in the current session too
+alias opencoms="node $APP_DIR/bin/opencoms" 2>/dev/null || true
+export PATH="$APP_DIR/bin:$PATH"
 
 # Verify
-if command -v opencoms &>/dev/null || [ -x "$SYMLINK_PATH" ]; then
+if command -v opencoms &>/dev/null || [ "$SYMLINK_CREATED" = "1" ]; then
   info "CLI installed: opencoms"
 else
-  warn "CLI not in PATH. Add /usr/local/bin to your PATH or run directly."
+  warn "Run with: node $APP_DIR/bin/opencoms start"
 fi
 
 # Check all components
@@ -292,7 +340,17 @@ fi
 step 7 "Starting OpenComs..."
 
 echo ""
-echo -e "  ${GREEN}${BOLD}Installation complete!${NC}"
+echo ""
+echo -e "  ${GREEN}${BOLD}🎉🎉🎉 INSTALLED SUCCESSFULLY 🎉🎉🎉${NC}"
+echo ""
+echo -e "  ${BOLD}╔══════════════════════════════════════════════════╗${NC}"
+echo -e "  ${BOLD}║                                                  ║${NC}"
+echo -e "  ${BOLD}║   OpenComs is ready!                             ║${NC}"
+echo -e "  ${BOLD}║                                                  ║${NC}"
+echo -e "  ${BOLD}║   You can visit OpenComs at:                     ║${NC}"
+echo -e "  ${BOLD}║   ${GREEN}http://localhost:4545${NC}${BOLD}                          ║${NC}"
+echo -e "  ${BOLD}║                                                  ║${NC}"
+echo -e "  ${BOLD}╚══════════════════════════════════════════════════╝${NC}"
 echo ""
 echo "  Commands:"
 echo "    opencoms start    — Start OpenComs"
@@ -305,7 +363,7 @@ echo "  To uninstall: opencoms stop && rm -rf ~/.opencoms /usr/local/bin/opencom
 echo ""
 
 # Auto-start
-exec opencoms start 2>/dev/null || exec node "$APP_DIR/bin/opencoms" start || {
+opencoms start 2>/dev/null || node "$APP_DIR/bin/opencoms" start 2>/dev/null || {
   echo ""
   echo "  Run 'opencoms start' to begin."
   echo ""

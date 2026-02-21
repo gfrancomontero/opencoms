@@ -19,6 +19,20 @@ export function createServer(port) {
         credentials: false,
     }));
     app.use(express.json());
+    // Request logging middleware
+    app.use((req, res, next) => {
+        const start = Date.now();
+        res.on('finish', () => {
+            // Skip SSE and static file logging to reduce noise
+            if (req.path === '/api/events')
+                return;
+            if (!req.path.startsWith('/api/'))
+                return;
+            const duration = Date.now() - start;
+            log.request(req.method, req.path, res.statusCode);
+        });
+        next();
+    });
     // Serve the built frontend
     const webDistPath = path.join(import.meta.dirname, '../../web/dist');
     if (fs.existsSync(webDistPath)) {

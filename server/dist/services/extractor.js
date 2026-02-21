@@ -59,7 +59,8 @@ async function extractDoc(filePath) {
     }
 }
 async function extractSpreadsheet(filePath) {
-    const XLSX = await import('xlsx');
+    const xlsxModule = await import('xlsx');
+    const XLSX = xlsxModule.default || xlsxModule;
     const workbook = XLSX.readFile(filePath);
     const parts = [];
     for (const sheetName of workbook.SheetNames) {

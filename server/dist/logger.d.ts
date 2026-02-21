@@ -8,6 +8,8 @@ export declare const log: {
     error(message: string): void;
     verbose(message: string): void;
     step(current: number, total: number, message: string): void;
+    server(message: string): void;
+    request(method: string, path: string, status: number): void;
 };
 export {};
 //# sourceMappingURL=logger.d.ts.map
