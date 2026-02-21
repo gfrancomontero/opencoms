@@ -81,7 +81,8 @@ async function extractDoc(filePath: string): Promise<ExtractionResult> {
 }
 
 async function extractSpreadsheet(filePath: string): Promise<ExtractionResult> {
-  const XLSX = await import('xlsx');
+  const xlsxModule = await import('xlsx');
+  const XLSX = xlsxModule.default || xlsxModule;
   const workbook = XLSX.readFile(filePath);
 
   const parts: string[] = [];

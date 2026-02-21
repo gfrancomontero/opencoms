@@ -192,9 +192,26 @@ cd server && npm start
 ## Uninstall
 
 ```bash
+# 1. Stop the server
 opencoms stop
-rm -rf ~/.opencoms /usr/local/bin/opencoms
+
+# 2. Remove all OpenComs data, models, and app files
+rm -rf ~/.opencoms
+
+# 3. Remove the CLI symlink (if it exists)
+rm -f /usr/local/bin/opencoms
+
+# 4. Remove the shell alias from your shell config
+#    For zsh (default on macOS):
+sed -i '' '/opencoms/d' ~/.zshrc
+#    For bash:
+#    sed -i '' '/opencoms/d' ~/.bashrc
+
+# 5. (Optional) Remove Ollama if you don't use it for anything else
+brew uninstall ollama
 ```
+
+Step 2 wipes everything: the SQLite database (all indexed content and embeddings), downloaded AI models, config, and PID files. No trace of your documents or data remains on the system.
 
 ## Known Limitations
 

@@ -4,7 +4,11 @@
       "Bash(chmod:*)",
       "Bash(npm install:*)",
       "Bash(npx tsc:*)",
-      "Bash(npm run build:*)"
+      "Bash(npm run build:*)",
+      "Bash(ollama list:*)",
+      "Bash(curl:*)",
+      "Bash(ollama pull:*)",
+      "Bash(kill:*)"
     ]
   }
 }

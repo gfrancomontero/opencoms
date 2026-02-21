@@ -120,12 +120,19 @@ export async function start(options: StartOptions = {}): Promise<void> {
 
   // Graceful shutdown
   const shutdown = () => {
-    log.info('Shutting down...');
+    console.log('');
+    console.log('');
+    console.log('  \x1b[33mShutting down safely...\x1b[0m');
     server.close();
     closeDb();
     try {
       fs.unlinkSync(PID_FILE);
     } catch { /* ignore */ }
+    console.log('');
+    console.log('  \x1b[32m✓ OpenComs stopped.\x1b[0m');
+    console.log('');
+    console.log('  Type \x1b[1mopencoms start\x1b[0m in your terminal anytime to launch the app again.');
+    console.log('');
     process.exit(0);
   };
 
