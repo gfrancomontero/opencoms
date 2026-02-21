@@ -211,7 +211,7 @@ sed -i '' '/opencoms/d' ~/.zshrc
 brew uninstall ollama
 ```
 
-This completely removes OpenComs from your system. No files are left behind.
+Step 2 wipes everything: the SQLite database (all indexed content and embeddings), downloaded AI models, config, and PID files. No trace of your documents or data remains on the system.
 
 ## Known Limitations
 
