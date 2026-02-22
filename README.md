@@ -84,7 +84,7 @@ opencoms reindex                      # Re-index all documents
                        │ HTTP (localhost only)
 ┌──────────────────────┴───────────────────────────────────┐
 │              Ollama (localhost:11434)                      │
-│              Local LLM: llama3.2                          │
+│              Local LLM: qwen2.5:14b                          │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -99,7 +99,7 @@ opencoms reindex                      # Re-index all documents
 7. **Watcher** monitors folder for changes, re-indexes incrementally
 8. **User asks a question** in the chat UI
 9. **Retriever** embeds the query, finds top-8 similar chunks via cosine similarity
-10. **LLM** (Ollama/llama3.2) generates an answer using only the retrieved context
+10. **LLM** (Ollama/qwen2.5:14b) generates an answer using only the retrieved context
 11. **Response** streams back with citations (file name, page number)
 
 ## Supported File Types
@@ -175,19 +175,32 @@ Requires an ONNX-format model. Download to `~/.opencoms/models/<name>/` and upda
 
 ## Development
 
+If you're working on OpenComs locally, you don't need to push to GitHub or reinstall. Just build and run from the project directory:
+
 ```bash
 # Install dependencies
 npm install
 
-# Dev mode (hot reload)
-npm run dev
+# Build everything (server + web UI) and run
+npm run build && node bin/opencoms start
 
-# Build for production
-npm run build
+# Rebuild only the server (faster, skip if only backend changes)
+npm run build --workspace=server && node bin/opencoms start
 
-# Run built server
-cd server && npm start
+# Rebuild only the web UI
+npm run build --workspace=web && node bin/opencoms start
+
+# Run with a specific folder
+npm run build && node bin/opencoms start --folder ~/Documents
+
+# Run without opening the browser
+npm run build && node bin/opencoms start --no-browser
+
+# Run with verbose logging
+npm run build && node bin/opencoms start --verbose
 ```
+
+Ctrl+C to stop. Changes require a rebuild before they take effect.
 
 ## Uninstall
 
