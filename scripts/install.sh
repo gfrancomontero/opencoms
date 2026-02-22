@@ -26,7 +26,7 @@ OPENCOMS_DIR="$HOME/.opencoms"
 APP_DIR="$OPENCOMS_DIR/app"
 MODELS_DIR="$OPENCOMS_DIR/models"
 REPO_URL="https://github.com/gfrancomontero/opencoms.git"
-CHAT_MODEL="llama3.2"
+CHAT_MODEL="qwen2.5:14b"
 EMBEDDING_MODEL="all-MiniLM-L6-v2"
 EMBEDDING_BASE_URL="https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main"
 
@@ -284,7 +284,7 @@ fi
 # ─────────────────────────────────────────────
 # Step 4: Download chat model
 # ─────────────────────────────────────────────
-step 4 "Downloading local chat model ($CHAT_MODEL)... ${GRAY}(~2GB, may take a few minutes)${NC}"
+step 4 "Downloading local chat model ($CHAT_MODEL)... ${GRAY}(~9GB, may take a few minutes)${NC}"
 
 MODEL_EXISTS=0
 ollama list 2>/dev/null | grep -q "$CHAT_MODEL" && MODEL_EXISTS=1

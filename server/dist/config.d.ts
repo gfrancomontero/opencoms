@@ -6,7 +6,7 @@ export declare const CONFIG_PATH: string;
 export declare const PID_FILE: string;
 export declare const DEFAULT_PORT = 4545;
 export declare const OLLAMA_URL = "http://127.0.0.1:11434";
-export declare const DEFAULT_CHAT_MODEL = "llama3.2";
+export declare const DEFAULT_CHAT_MODEL = "qwen2.5:14b";
 export declare const EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2";
 export declare const EMBEDDING_DIMS = 384;
 export declare const CHUNK_SIZE = 3000;

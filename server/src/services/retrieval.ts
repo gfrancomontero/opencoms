@@ -66,7 +66,8 @@ function buildContext(chunks: RetrievedChunk[]): string {
         ? `(Sheet: ${chunk.metadata.sheet})`
         : '';
 
-    const header = `--- Source: ${chunk.fileName} ${location} ---`;
+    // Include the full file path — folder names often contain dates and trip info
+    const header = `--- Source: ${chunk.filePath} ${location} ---`;
     const section = `${header}\n${chunk.content}\n`;
 
     if (totalLen + section.length > CONTEXT_CAP) break;
@@ -77,15 +78,7 @@ function buildContext(chunks: RetrievedChunk[]): string {
   return parts.join('\n');
 }
 
-const SYSTEM_PROMPT = `You are a helpful document assistant. Answer the user's question using ONLY the provided document context below.
-
-Rules:
-- Only use information from the provided context to answer
-- Always cite which document (file name) and location (page/sheet) your answer comes from
-- If the answer is not in the context, say "I don't know based on your documents."
-- Never make up or hallucinate file names or information
-- Be concise and direct
-- Format citations like: [Source: filename.pdf, Page X]`;
+const SYSTEM_PROMPT = `You are a helpful document assistant. You answer questions based on the user's personal documents.`;
 
 export async function* answerQuery(
   query: string,
@@ -118,7 +111,7 @@ export async function* answerQuery(
     ...chatHistory.slice(-6), // keep last 3 exchanges
     {
       role: 'user',
-      content: `Context from documents:\n${context}\n\nQuestion: ${query}`,
+      content: `Here are my personal documents:\n\n${context}\n\nBased on the documents above, answer this question: ${query}\n\nIMPORTANT: You MUST answer using the documents above. Summarize what you found. The folder paths contain dates and trip names — use them. Documents may be in any language — translate if needed. Cite sources as [Source: filename]. Do NOT say "I don't know" — the documents above are relevant, use them.`,
     },
   ];
 
