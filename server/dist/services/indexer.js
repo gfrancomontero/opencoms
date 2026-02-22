@@ -76,6 +76,8 @@ export async function indexFolder(folder) {
                 log.verbose(`Skipping unchanged file: ${relPath}`);
                 continue;
             }
+            // Insert/update the file record FIRST so chunks can reference it (foreign key)
+            upsertFile(filePath, ext, lastModified, 'processing');
             emitProgress({
                 phase: 'extracting',
                 current: i + 1,
@@ -108,6 +110,7 @@ export async function indexFolder(folder) {
                 const embBuffer = embeddingToBuffer(embedding);
                 insertChunk(filePath, chunk.metadata.chunk_index, chunk.content, JSON.stringify(chunk.metadata), chunk.metadata.content_hash, embBuffer);
             }
+            // Mark file as successfully indexed
             upsertFile(filePath, ext, lastModified, 'indexed');
             log.verbose(`Indexed: ${relPath} (${chunks.length} chunks)`);
         }
@@ -128,6 +131,8 @@ export async function indexSingleFile(filePath, folder) {
         const stat = fs.statSync(filePath);
         const lastModified = stat.mtimeMs;
         log.info(`Indexing new/changed file: ${relPath}...`);
+        // Insert/update the file record FIRST so chunks can reference it (foreign key)
+        upsertFile(filePath, ext, lastModified, 'processing');
         const extraction = await extractText(filePath);
         const chunks = chunkText(extraction.text, filePath, ext, lastModified, extraction.pages);
         deleteChunksForFile(filePath);
@@ -136,6 +141,7 @@ export async function indexSingleFile(filePath, folder) {
             const embBuffer = embeddingToBuffer(embedding);
             insertChunk(filePath, chunk.metadata.chunk_index, chunk.content, JSON.stringify(chunk.metadata), chunk.metadata.content_hash, embBuffer);
         }
+        // Mark file as successfully indexed
         upsertFile(filePath, ext, lastModified, 'indexed');
         log.info(`Indexed: ${relPath} (${chunks.length} chunks)`);
         indexEvents.emit('progress', {
