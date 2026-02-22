@@ -4,6 +4,24 @@
 # OpenComs Installer — Fully Local Document Chat
 # ─────────────────────────────────────────────
 
+# When piped via curl | bash, the script is read from stdin in chunks.
+# If a command (like brew) also reads stdin, it can consume parts of the
+# script, causing garbled output and silent failures. To prevent this,
+# we detect if we're being piped and re-execute from a temp file.
+# Only do this when $0 is "bash" (i.e. curl ... | bash), not when running a file directly.
+if [ "$0" = "bash" ] || [ "$0" = "/bin/bash" ] || [ "$0" = "-bash" ]; then
+  if [ -z "$OPENCOMS_INSTALLER_RUNNING" ]; then
+    export OPENCOMS_INSTALLER_RUNNING=1
+    TMPSCRIPT="/tmp/opencoms_install_$$.sh"
+    cat > "$TMPSCRIPT"
+    chmod +x "$TMPSCRIPT"
+    bash "$TMPSCRIPT" "$@"
+    SCRIPT_EXIT=$?
+    rm -f "$TMPSCRIPT"
+    exit $SCRIPT_EXIT
+  fi
+fi
+
 OPENCOMS_DIR="$HOME/.opencoms"
 APP_DIR="$OPENCOMS_DIR/app"
 MODELS_DIR="$OPENCOMS_DIR/models"
@@ -61,7 +79,7 @@ verbose() {
 spin() {
   local msg="$1"
   shift
-  local chars="⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+  local frames=("⠋" "⠙" "⠹" "⠸" "⠼" "⠴" "⠦" "⠧" "⠇" "⠏")
   local pid
   local i=0
   local exit_code
@@ -69,16 +87,24 @@ spin() {
   "$@" &>/tmp/opencoms_install_log.txt &
   pid=$!
 
-  while kill -0 "$pid" 2>/dev/null; do
-    local c="${chars:i%${#chars}:1}"
-    printf "\r  ${BLUE}%s${NC}  %s" "$c" "$msg"
-    i=$((i + 1))
-    sleep 0.1
-  done
+  # Only show spinner if terminal supports it
+  if [ -t 1 ]; then
+    while kill -0 "$pid" 2>/dev/null; do
+      printf "\r  \033[0;34m%s\033[0m  %s" "${frames[$((i % 10))]}" "$msg"
+      i=$((i + 1))
+      sleep 0.12
+    done
+    printf "\r\033[K"
+  else
+    printf "  ...  %s" "$msg"
+    wait "$pid"
+    exit_code=$?
+    printf "\n"
+    return $exit_code
+  fi
 
   wait "$pid"
   exit_code=$?
-  printf "\r\033[K"
 
   return $exit_code
 }
