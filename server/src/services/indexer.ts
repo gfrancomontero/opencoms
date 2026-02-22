@@ -102,6 +102,9 @@ export async function indexFolder(folder: string): Promise<void> {
         continue;
       }
 
+      // Insert/update the file record FIRST so chunks can reference it (foreign key)
+      upsertFile(filePath, ext, lastModified, 'processing');
+
       emitProgress({
         phase: 'extracting',
         current: i + 1,
@@ -150,6 +153,7 @@ export async function indexFolder(folder: string): Promise<void> {
         );
       }
 
+      // Mark file as successfully indexed
       upsertFile(filePath, ext, lastModified, 'indexed');
       log.verbose(`Indexed: ${relPath} (${chunks.length} chunks)`);
     } catch (err: any) {
@@ -174,6 +178,9 @@ export async function indexSingleFile(filePath: string, folder: string): Promise
 
     log.info(`Indexing new/changed file: ${relPath}...`);
 
+    // Insert/update the file record FIRST so chunks can reference it (foreign key)
+    upsertFile(filePath, ext, lastModified, 'processing');
+
     const extraction = await extractText(filePath);
     const chunks = chunkText(extraction.text, filePath, ext, lastModified, extraction.pages);
 
@@ -185,6 +192,7 @@ export async function indexSingleFile(filePath: string, folder: string): Promise
       insertChunk(filePath, chunk.metadata.chunk_index, chunk.content, JSON.stringify(chunk.metadata), chunk.metadata.content_hash, embBuffer);
     }
 
+    // Mark file as successfully indexed
     upsertFile(filePath, ext, lastModified, 'indexed');
     log.info(`Indexed: ${relPath} (${chunks.length} chunks)`);
 

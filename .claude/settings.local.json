@@ -1,18 +1,7 @@
 {
   "permissions": {
     "allow": [
-      "Bash(chmod:*)",
-      "Bash(npm install:*)",
-      "Bash(npx tsc:*)",
-      "Bash(npm run build:*)",
-      "Bash(ollama list:*)",
-      "Bash(curl:*)",
-      "Bash(ollama pull:*)",
-      "Bash(kill:*)",
-      "Bash(bash:*)",
-      "Bash(echo:*)",
-      "Bash(git reset:*)",
-      "Bash(git add:*)"
+      "Bash(npm run build:*)"
     ]
   }
 }
