@@ -13,30 +13,67 @@ interface RetrievedChunk {
   score: number;
 }
 
-function cosineSimilarity(a: Float32Array, b: Float32Array): number {
+// ── Embedding Cache ──────────────────────────────────────
+// Keeps all chunk embeddings in memory after first load.
+// Avoids re-reading from SQLite and re-converting buffers on every query.
+
+interface CachedChunk {
+  id: number;
+  file_path: string;
+  chunk_index: number;
+  content: string;
+  metadata_json: string;
+  embedding: Float32Array;
+}
+
+let chunkCache: CachedChunk[] | null = null;
+
+export function invalidateChunkCache(): void {
+  chunkCache = null;
+  log.verbose('Embedding cache invalidated');
+}
+
+function getChunksFromCache(): CachedChunk[] {
+  if (chunkCache) return chunkCache;
+
+  const t0 = Date.now();
+  const allChunks = getAllChunksWithEmbeddings();
+
+  chunkCache = allChunks.map((chunk) => ({
+    id: chunk.id,
+    file_path: chunk.file_path,
+    chunk_index: chunk.chunk_index,
+    content: chunk.content,
+    metadata_json: chunk.metadata_json,
+    embedding: bufferToEmbedding(chunk.embedding_blob),
+  }));
+
+  log.info(`Embedding cache loaded: ${chunkCache.length} chunks in ${Date.now() - t0}ms`);
+  return chunkCache;
+}
+
+// Dot product — equivalent to cosine similarity when vectors are L2-normalized
+// (our embeddings are normalized in meanPooling), so we skip the sqrt divisions.
+function dotProduct(a: Float32Array, b: Float32Array): number {
   let dot = 0;
-  let normA = 0;
-  let normB = 0;
   for (let i = 0; i < a.length; i++) {
     dot += a[i] * b[i];
-    normA += a[i] * a[i];
-    normB += b[i] * b[i];
   }
-  const denom = Math.sqrt(normA) * Math.sqrt(normB);
-  return denom === 0 ? 0 : dot / denom;
+  return dot;
 }
+
+// ── Retrieval ────────────────────────────────────────────
 
 export async function retrieveChunks(query: string, topK: number = TOP_K): Promise<RetrievedChunk[]> {
   const queryEmbedding = await embed(query);
-  const allChunks = getAllChunksWithEmbeddings();
+  const cachedChunks = getChunksFromCache();
 
-  if (allChunks.length === 0) {
+  if (cachedChunks.length === 0) {
     return [];
   }
 
-  const scored = allChunks.map((chunk) => {
-    const chunkEmbedding = bufferToEmbedding(chunk.embedding_blob);
-    const score = cosineSimilarity(queryEmbedding, chunkEmbedding);
+  const scored = cachedChunks.map((chunk) => {
+    const score = dotProduct(queryEmbedding, chunk.embedding);
     let metadata: Record<string, any> = {};
     try {
       metadata = JSON.parse(chunk.metadata_json || '{}');
@@ -54,6 +91,8 @@ export async function retrieveChunks(query: string, topK: number = TOP_K): Promi
   scored.sort((a, b) => b.score - a.score);
   return scored.slice(0, topK);
 }
+
+// ── Context Building ─────────────────────────────────────
 
 function buildContext(chunks: RetrievedChunk[]): string {
   const parts: string[] = [];
@@ -78,20 +117,38 @@ function buildContext(chunks: RetrievedChunk[]): string {
   return parts.join('\n');
 }
 
+// ── Answer Generation ────────────────────────────────────
+
 const SYSTEM_PROMPT = `You are a helpful document assistant. You answer questions based on the user's personal documents.`;
 
 export async function* answerQuery(
   query: string,
   chatHistory: Array<{ role: string; content: string }> = [],
-): AsyncGenerator<{ type: 'sources' | 'token' | 'done'; data: any }> {
-  log.info(`Processing query: "${query.slice(0, 80)}..."`);
+): AsyncGenerator<{ type: 'sources' | 'token' | 'done' | 'log'; data: any }> {
+  const t0 = Date.now();
 
+  yield { type: 'log', data: { step: 'start', message: `Query: "${query}"`, timestamp: t0 } };
+
+  // Retrieve relevant chunks
+  const retrievalStart = Date.now();
   const chunks = await retrieveChunks(query);
+  const retrievalMs = Date.now() - retrievalStart;
+
+  yield { type: 'log', data: { step: 'retrieval', message: `Retrieved ${chunks.length} chunks in ${retrievalMs}ms`, timestamp: Date.now() } };
 
   if (chunks.length === 0) {
     yield { type: 'token', data: "I don't have any documents indexed yet. Please select a folder and wait for indexing to complete." };
     yield { type: 'done', data: null };
     return;
+  }
+
+  // Log each retrieved chunk
+  for (const chunk of chunks) {
+    yield { type: 'log', data: {
+      step: 'chunk',
+      message: `Score ${chunk.score.toFixed(3)} | ${chunk.fileName} | ${chunk.content.slice(0, 100).replace(/\n/g, ' ')}...`,
+      timestamp: Date.now(),
+    }};
   }
 
   // Emit sources
@@ -106,6 +163,8 @@ export async function* answerQuery(
 
   const context = buildContext(chunks);
 
+  yield { type: 'log', data: { step: 'context', message: `Context built: ${context.length} chars from ${chunks.length} chunks`, timestamp: Date.now() } };
+
   const messages = [
     { role: 'system', content: SYSTEM_PROMPT },
     ...chatHistory.slice(-6), // keep last 3 exchanges
@@ -115,9 +174,17 @@ export async function* answerQuery(
     },
   ];
 
+  // Stream LLM response
+  const llmStart = Date.now();
+  let tokenCount = 0;
   for await (const token of chatStream(messages)) {
     yield { type: 'token', data: token };
+    tokenCount++;
   }
+  const llmMs = Date.now() - llmStart;
+
+  yield { type: 'log', data: { step: 'llm', message: `LLM generated ${tokenCount} tokens in ${llmMs}ms (${Math.round(tokenCount / (llmMs / 1000))} tok/s)`, timestamp: Date.now() } };
+  yield { type: 'log', data: { step: 'complete', message: `Total time: ${Date.now() - t0}ms`, timestamp: Date.now() } };
 
   yield { type: 'done', data: null };
 }

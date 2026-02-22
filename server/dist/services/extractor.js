@@ -58,10 +58,39 @@ async function extractDoc(filePath) {
             'The file might be password-protected or corrupted.');
     }
 }
+function isDateFormat(fmt) {
+    if (!fmt || fmt === 'General')
+        return false;
+    // Check for date-related tokens (d, m, y, h, s) but exclude pure number/percentage formats
+    const dateParts = /[dDmMyYhHsS]/;
+    const excluded = /^[#0.,%;$€£¥ ()-]+$/;
+    return dateParts.test(fmt) && !excluded.test(fmt);
+}
+function formatCellValue(cell) {
+    if (!cell)
+        return '';
+    // SheetJS date cell (when cellDates: true is used)
+    if (cell.t === 'd' && cell.v instanceof Date) {
+        return cell.v.toISOString().split('T')[0]; // "2019-08-15"
+    }
+    // Numeric cell with a date format — convert Excel serial to date
+    if (cell.t === 'n' && cell.z && isDateFormat(cell.z)) {
+        const serial = cell.v;
+        // Excel serial dates: days since 1900-01-01 (with a leap year bug)
+        // Valid range: roughly 1 (1900-01-01) to 100000 (~2173)
+        if (serial > 0 && serial < 100000) {
+            const jsDate = new Date((serial - 25569) * 86400 * 1000);
+            if (!isNaN(jsDate.getTime())) {
+                return jsDate.toISOString().split('T')[0];
+            }
+        }
+    }
+    return String(cell.v ?? '');
+}
 async function extractSpreadsheet(filePath) {
     const xlsxModule = await import('xlsx');
     const XLSX = xlsxModule.default || xlsxModule;
-    const workbook = XLSX.readFile(filePath);
+    const workbook = XLSX.readFile(filePath, { cellDates: true });
     const parts = [];
     for (const sheetName of workbook.SheetNames) {
         const sheet = workbook.Sheets[sheetName];
@@ -75,7 +104,7 @@ async function extractSpreadsheet(filePath) {
             for (let c = range.s.c; c <= range.e.c; c++) {
                 const addr = XLSX.utils.encode_cell({ r, c });
                 const cell = sheet[addr];
-                cells.push(cell ? String(cell.v ?? '') : '');
+                cells.push(formatCellValue(cell));
             }
             if (cells.some((c) => c.trim())) {
                 rows.push(`Row ${r + 1}: ${cells.join(' | ')}`);

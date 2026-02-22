@@ -10,6 +10,7 @@ import {
   getFile, removeFile, getAllFiles,
 } from './database.js';
 import { EventEmitter } from 'events';
+import { invalidateChunkCache } from './retrieval.js';
 
 export const indexEvents = new EventEmitter();
 indexEvents.setMaxListeners(50);
@@ -163,6 +164,7 @@ export async function indexFolder(folder: string): Promise<void> {
     }
   }
 
+  invalidateChunkCache();
   emitProgress({ phase: 'done', current: files.length, total: files.length, message: 'Done. You can now ask questions.' });
 }
 
@@ -196,6 +198,7 @@ export async function indexSingleFile(filePath: string, folder: string): Promise
     upsertFile(filePath, ext, lastModified, 'indexed');
     log.info(`Indexed: ${relPath} (${chunks.length} chunks)`);
 
+    invalidateChunkCache();
     indexEvents.emit('progress', {
       phase: 'update',
       current: 1,
@@ -212,6 +215,7 @@ export async function indexSingleFile(filePath: string, folder: string): Promise
 export function removeFileFromIndex(filePath: string, folder: string): void {
   const relPath = path.relative(folder, filePath);
   removeFile(filePath);
+  invalidateChunkCache();
   log.info(`Removed from index: ${relPath}`);
   indexEvents.emit('progress', {
     phase: 'update',
