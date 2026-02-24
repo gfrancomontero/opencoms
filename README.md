@@ -14,6 +14,30 @@ curl -fsSL https://raw.githubusercontent.com/gfrancomontero/opencoms/main/script
 
 The installer handles everything: Homebrew, Node.js, Ollama, AI models, and the app itself.
 
+# If you want to build + run from your local repo
+```bash
+# 1. Stop the server if running
+opencoms stop 2>/dev/null
+
+# 2. Wipe everything (app + database + config)
+rm -rf ~/.opencoms
+
+# 3. Remove the shell alias
+sed -i '' '/opencoms/d' ~/.zshrc && source ~/.zshrc
+
+# 4. Build and install from dev
+cd "$HOME/code/opencoms"
+npm run build
+mkdir -p ~/.opencoms/app
+cp -r . ~/.opencoms/app/
+echo "alias opencoms='node /Users/gonzalofranco/.opencoms/app/bin/opencoms'" >> ~/.zshrc
+source ~/.zshrc
+
+# 5. Start
+opencoms start
+
+```
+
 ## Quick Start
 
 ```bash

@@ -11,8 +11,11 @@ export declare const EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2";
 export declare const EMBEDDING_DIMS = 384;
 export declare const CHUNK_SIZE = 3000;
 export declare const CHUNK_OVERLAP = 300;
-export declare const TOP_K = 8;
-export declare const CONTEXT_CAP = 20000;
+export declare const TOP_K = 30;
+export declare const CONTEXT_CAP = 48000;
+export declare const MAX_CHUNKS_PER_FILE = 2;
+export declare const OLLAMA_NUM_CTX = 16384;
+export declare const OLLAMA_TIMEOUT_MS = 600000;
 export declare const SUPPORTED_EXTENSIONS: string[];
 export interface AppConfig {
     folder?: string;

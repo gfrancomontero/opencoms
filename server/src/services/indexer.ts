@@ -15,6 +15,12 @@ import { invalidateChunkCache } from './retrieval.js';
 export const indexEvents = new EventEmitter();
 indexEvents.setMaxListeners(50);
 
+// Build the text that gets embedded — includes the file path so that
+// folder names (trip destinations, dates, project names) become searchable.
+function embeddableText(filePath: string, content: string): string {
+  return `File: ${filePath}\n\n${content}`;
+}
+
 export interface IndexProgress {
   phase: string;
   current: number;
@@ -141,7 +147,7 @@ export async function indexFolder(folder: string): Promise<void> {
           message: `Creating private search index: ${relPath} (chunk ${j + 1}/${chunks.length})...`,
         });
 
-        const embedding = await embed(chunk.content);
+        const embedding = await embed(embeddableText(filePath, chunk.content));
         const embBuffer = embeddingToBuffer(embedding);
 
         insertChunk(
@@ -189,7 +195,7 @@ export async function indexSingleFile(filePath: string, folder: string): Promise
     deleteChunksForFile(filePath);
 
     for (const chunk of chunks) {
-      const embedding = await embed(chunk.content);
+      const embedding = await embed(embeddableText(filePath, chunk.content));
       const embBuffer = embeddingToBuffer(embedding);
       insertChunk(filePath, chunk.metadata.chunk_index, chunk.content, JSON.stringify(chunk.metadata), chunk.metadata.content_hash, embBuffer);
     }

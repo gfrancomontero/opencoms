@@ -18,8 +18,11 @@ export const EMBEDDING_DIMS = 384;
 
 export const CHUNK_SIZE = 3000;
 export const CHUNK_OVERLAP = 300;
-export const TOP_K = 8;
-export const CONTEXT_CAP = 20000;
+export const TOP_K = 30;
+export const CONTEXT_CAP = 48000; // ~12K tokens — fits comfortably in 16K context
+export const MAX_CHUNKS_PER_FILE = 2; // Ensure diversity across more files
+export const OLLAMA_NUM_CTX = 16384; // 16K token context window for the LLM
+export const OLLAMA_TIMEOUT_MS = 600000; // 10 min timeout for LLM generation
 
 export const SUPPORTED_EXTENSIONS = ['.pdf', '.doc', '.docx', '.xls', '.xlsx'];
 
