@@ -129,7 +129,7 @@ export default function App() {
               <button className="btn btn-secondary" onClick={() => setScreen('folder')} style={{ fontSize: 12, padding: '6px 12px' }}>
                 Change Folder
               </button>
-              <button className="btn btn-secondary" onClick={() => reindex()} style={{ fontSize: 12, padding: '6px 12px' }}>
+              <button className="btn btn-secondary" onClick={() => { setLogs([]); setProgress(null); reindex(); setScreen('indexing'); }} style={{ fontSize: 12, padding: '6px 12px' }}>
                 Reindex
               </button>
             </>

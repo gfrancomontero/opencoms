@@ -1,7 +1,7 @@
 import { getAllChunksWithEmbeddings } from './database.js';
 import { embed, bufferToEmbedding } from './embeddings.js';
 import { chatStream } from './ollama.js';
-import { TOP_K, CONTEXT_CAP } from '../config.js';
+import { TOP_K, CONTEXT_CAP, MAX_CHUNKS_PER_FILE } from '../config.js';
 import { log } from '../logger.js';
 import path from 'path';
 
@@ -13,47 +13,163 @@ interface RetrievedChunk {
   score: number;
 }
 
-function cosineSimilarity(a: Float32Array, b: Float32Array): number {
+// ── Embedding Cache ──────────────────────────────────────
+
+interface CachedChunk {
+  id: number;
+  file_path: string;
+  chunk_index: number;
+  content: string;
+  metadata_json: string;
+  embedding: Float32Array;
+}
+
+let chunkCache: CachedChunk[] | null = null;
+
+export function invalidateChunkCache(): void {
+  chunkCache = null;
+  log.verbose('Embedding cache invalidated');
+}
+
+function getChunksFromCache(): CachedChunk[] {
+  if (chunkCache) return chunkCache;
+
+  const t0 = Date.now();
+  const allChunks = getAllChunksWithEmbeddings();
+
+  chunkCache = allChunks.map((chunk) => ({
+    id: chunk.id,
+    file_path: chunk.file_path,
+    chunk_index: chunk.chunk_index,
+    content: chunk.content,
+    metadata_json: chunk.metadata_json,
+    embedding: bufferToEmbedding(chunk.embedding_blob),
+  }));
+
+  log.info(`Embedding cache loaded: ${chunkCache.length} chunks in ${Date.now() - t0}ms`);
+  return chunkCache;
+}
+
+// Dot product — equivalent to cosine similarity when vectors are L2-normalized
+function dotProduct(a: Float32Array, b: Float32Array): number {
   let dot = 0;
-  let normA = 0;
-  let normB = 0;
   for (let i = 0; i < a.length; i++) {
     dot += a[i] * b[i];
-    normA += a[i] * a[i];
-    normB += b[i] * b[i];
   }
-  const denom = Math.sqrt(normA) * Math.sqrt(normB);
-  return denom === 0 ? 0 : dot / denom;
+  return dot;
 }
+
+// ── Keyword Extraction ──────────────────────────────────
+
+function extractKeywords(query: string): string[] {
+  // Remove common stop words, keep meaningful terms
+  const stopWords = new Set([
+    'i', 'me', 'my', 'we', 'our', 'you', 'your', 'he', 'she', 'it', 'they',
+    'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+    'of', 'with', 'by', 'from', 'is', 'was', 'are', 'were', 'be', 'been',
+    'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could',
+    'should', 'may', 'might', 'can', 'this', 'that', 'these', 'those',
+    'what', 'which', 'who', 'when', 'where', 'how', 'all', 'each', 'every',
+    'both', 'few', 'more', 'most', 'other', 'some', 'such', 'no', 'not',
+    'only', 'same', 'so', 'than', 'too', 'very', 'just', 'about', 'if',
+    'make', 'list', 'give', 'tell', 'show', 'find', 'get', 'go', 'went',
+    'been', 'done', 'any', 'also', 'there', 'then', 'here', 'out', 'up',
+    'down', 'off', 'over', 'under', 'again', 'once', 'much', 'many',
+    'point', 'bullet', 'please', 'did', 'travelled', 'traveled', 'travel',
+    've', 'ever',
+  ]);
+
+  return query
+    .toLowerCase()
+    .replace(/[^\w\s]/g, ' ')
+    .split(/\s+/)
+    .filter((w) => w.length >= 2 && !stopWords.has(w));
+}
+
+// ── Hybrid Retrieval ────────────────────────────────────
 
 export async function retrieveChunks(query: string, topK: number = TOP_K): Promise<RetrievedChunk[]> {
   const queryEmbedding = await embed(query);
-  const allChunks = getAllChunksWithEmbeddings();
+  const cachedChunks = getChunksFromCache();
 
-  if (allChunks.length === 0) {
+  if (cachedChunks.length === 0) {
     return [];
   }
 
-  const scored = allChunks.map((chunk) => {
-    const chunkEmbedding = bufferToEmbedding(chunk.embedding_blob);
-    const score = cosineSimilarity(queryEmbedding, chunkEmbedding);
+  const keywords = extractKeywords(query);
+
+  // Score every chunk: semantic + keyword boost
+  const scored: Array<{
+    content: string;
+    filePath: string;
+    fileName: string;
+    metadata: Record<string, any>;
+    semanticScore: number;
+    keywordScore: number;
+    score: number;
+  }> = [];
+
+  for (const chunk of cachedChunks) {
+    const semanticScore = dotProduct(queryEmbedding, chunk.embedding);
     let metadata: Record<string, any> = {};
     try {
       metadata = JSON.parse(chunk.metadata_json || '{}');
     } catch { /* ignore */ }
 
-    return {
+    // Keyword matching: check chunk content AND file path
+    let keywordHits = 0;
+    if (keywords.length > 0) {
+      const searchText = (chunk.file_path + ' ' + chunk.content).toLowerCase();
+      for (const kw of keywords) {
+        if (searchText.includes(kw)) {
+          keywordHits++;
+        }
+      }
+    }
+
+    // Keyword boost: 0.15 per keyword hit (significant but doesn't override strong semantic matches)
+    const keywordScore = keywords.length > 0
+      ? (keywordHits / keywords.length) * 0.15
+      : 0;
+
+    scored.push({
       content: chunk.content,
       filePath: chunk.file_path,
       fileName: path.basename(chunk.file_path),
       metadata,
-      score,
-    };
-  });
+      semanticScore,
+      keywordScore,
+      score: semanticScore + keywordScore,
+    });
+  }
 
+  // Sort by combined score
   scored.sort((a, b) => b.score - a.score);
-  return scored.slice(0, topK);
+
+  // Enforce per-file diversity: max N chunks per file
+  const result: RetrievedChunk[] = [];
+  const fileChunkCounts = new Map<string, number>();
+
+  for (const item of scored) {
+    if (result.length >= topK) break;
+
+    const count = fileChunkCounts.get(item.filePath) || 0;
+    if (count >= MAX_CHUNKS_PER_FILE) continue;
+
+    fileChunkCounts.set(item.filePath, count + 1);
+    result.push({
+      content: item.content,
+      filePath: item.filePath,
+      fileName: item.fileName,
+      metadata: item.metadata,
+      score: item.score,
+    });
+  }
+
+  return result;
 }
+
+// ── Context Building ─────────────────────────────────────
 
 function buildContext(chunks: RetrievedChunk[]): string {
   const parts: string[] = [];
@@ -78,15 +194,25 @@ function buildContext(chunks: RetrievedChunk[]): string {
   return parts.join('\n');
 }
 
+// ── Answer Generation ────────────────────────────────────
+
 const SYSTEM_PROMPT = `You are a helpful document assistant. You answer questions based on the user's personal documents.`;
 
 export async function* answerQuery(
   query: string,
   chatHistory: Array<{ role: string; content: string }> = [],
-): AsyncGenerator<{ type: 'sources' | 'token' | 'done'; data: any }> {
-  log.info(`Processing query: "${query.slice(0, 80)}..."`);
+): AsyncGenerator<{ type: 'sources' | 'token' | 'done' | 'log'; data: any }> {
+  const t0 = Date.now();
 
+  yield { type: 'log', data: { step: 'start', message: `Query: "${query}"`, timestamp: t0 } };
+
+  // Retrieve relevant chunks via hybrid search
+  const retrievalStart = Date.now();
   const chunks = await retrieveChunks(query);
+  const retrievalMs = Date.now() - retrievalStart;
+
+  const uniqueFiles = new Set(chunks.map((c) => c.filePath)).size;
+  yield { type: 'log', data: { step: 'retrieval', message: `Retrieved ${chunks.length} chunks from ${uniqueFiles} files in ${retrievalMs}ms`, timestamp: Date.now() } };
 
   if (chunks.length === 0) {
     yield { type: 'token', data: "I don't have any documents indexed yet. Please select a folder and wait for indexing to complete." };
@@ -94,30 +220,58 @@ export async function* answerQuery(
     return;
   }
 
-  // Emit sources
-  const sources = chunks.map((c) => ({
-    fileName: c.fileName,
-    filePath: c.filePath,
-    page: c.metadata.page,
-    sheet: c.metadata.sheet,
-    score: Math.round(c.score * 100) / 100,
-  }));
+  // Log top chunks
+  for (const chunk of chunks.slice(0, 10)) {
+    yield { type: 'log', data: {
+      step: 'chunk',
+      message: `Score ${chunk.score.toFixed(3)} | ${chunk.fileName} | ${chunk.content.slice(0, 100).replace(/\n/g, ' ')}...`,
+      timestamp: Date.now(),
+    }};
+  }
+  if (chunks.length > 10) {
+    yield { type: 'log', data: { step: 'chunk', message: `... and ${chunks.length - 10} more chunks`, timestamp: Date.now() } };
+  }
+
+  // Deduplicate sources for the UI: one entry per unique file
+  const seenFiles = new Map<string, { fileName: string; filePath: string; page?: number; sheet?: string; score: number }>();
+  for (const c of chunks) {
+    if (!seenFiles.has(c.filePath)) {
+      seenFiles.set(c.filePath, {
+        fileName: c.fileName,
+        filePath: c.filePath,
+        page: c.metadata.page,
+        sheet: c.metadata.sheet,
+        score: Math.round(c.score * 100) / 100,
+      });
+    }
+  }
+  const sources = Array.from(seenFiles.values());
   yield { type: 'sources', data: sources };
 
   const context = buildContext(chunks);
 
+  yield { type: 'log', data: { step: 'context', message: `Context built: ${context.length} chars from ${chunks.length} chunks across ${uniqueFiles} files`, timestamp: Date.now() } };
+
   const messages = [
     { role: 'system', content: SYSTEM_PROMPT },
-    ...chatHistory.slice(-6), // keep last 3 exchanges
+    ...chatHistory.slice(-6),
     {
       role: 'user',
-      content: `Here are my personal documents:\n\n${context}\n\nBased on the documents above, answer this question: ${query}\n\nIMPORTANT: You MUST answer using the documents above. Summarize what you found. The folder paths contain dates and trip names — use them. Documents may be in any language — translate if needed. Cite sources as [Source: filename]. Do NOT say "I don't know" — the documents above are relevant, use them.`,
+      content: `Here are my personal documents:\n\n${context}\n\nBased on the documents above, answer this question: ${query}\n\nIMPORTANT: You MUST answer using the documents above. Be thorough — go through EVERY document provided and extract ALL relevant information. The folder paths contain dates and trip names — use them. Airport codes like PTY=Panama, MGA=Managua, AGP=Malaga, JFK=New York, MAD=Madrid, LHR=London, etc. Documents may be in any language — translate if needed. Cite sources as [Source: filename]. Do NOT say "I don't know" — the documents above are relevant, use them.`,
     },
   ];
 
+  // Stream LLM response
+  const llmStart = Date.now();
+  let tokenCount = 0;
   for await (const token of chatStream(messages)) {
     yield { type: 'token', data: token };
+    tokenCount++;
   }
+  const llmMs = Date.now() - llmStart;
+
+  yield { type: 'log', data: { step: 'llm', message: `LLM generated ${tokenCount} tokens in ${llmMs}ms (${Math.round(tokenCount / (llmMs / 1000))} tok/s)`, timestamp: Date.now() } };
+  yield { type: 'log', data: { step: 'complete', message: `Total time: ${Date.now() - t0}ms`, timestamp: Date.now() } };
 
   yield { type: 'done', data: null };
 }

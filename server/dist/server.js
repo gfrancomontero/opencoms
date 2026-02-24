@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
+import { execSync } from 'child_process';
 import { loadConfig, saveConfig } from './config.js';
 import { log, onLog } from './logger.js';
 import { isOllamaRunning } from './services/ollama.js';
@@ -129,6 +130,21 @@ export function createServer(port) {
         const { enabled } = req.body;
         saveConfig({ privacyMode: !!enabled });
         res.json({ success: true, privacyMode: !!enabled });
+    });
+    // ---- Open file in Finder ----
+    app.post('/api/open-file', (req, res) => {
+        const { filePath } = req.body;
+        if (!filePath || !fs.existsSync(filePath)) {
+            res.status(400).json({ success: false, message: 'File not found' });
+            return;
+        }
+        try {
+            execSync(`open -R "${filePath}"`);
+            res.json({ success: true });
+        }
+        catch (err) {
+            res.status(500).json({ success: false, message: err.message });
+        }
     });
     // ---- Reindex ----
     app.post('/api/reindex', async (_req, res) => {

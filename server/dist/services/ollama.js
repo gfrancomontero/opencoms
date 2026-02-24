@@ -1,4 +1,4 @@
-import { OLLAMA_URL, DEFAULT_CHAT_MODEL, loadConfig } from '../config.js';
+import { OLLAMA_URL, DEFAULT_CHAT_MODEL, OLLAMA_NUM_CTX, OLLAMA_TIMEOUT_MS, loadConfig } from '../config.js';
 import { log } from '../logger.js';
 import { execSync, exec } from 'child_process';
 export async function isOllamaRunning() {
@@ -59,41 +59,55 @@ export async function ensureModelAvailable(model) {
 }
 export async function* chatStream(messages, model) {
     const modelName = model || loadConfig().chatModel || DEFAULT_CHAT_MODEL;
-    const resp = await fetch(`${OLLAMA_URL}/api/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            model: modelName,
-            messages,
-            stream: true,
-        }),
-    });
-    if (!resp.ok || !resp.body) {
-        throw new Error(`Ollama chat failed: ${resp.statusText}`);
-    }
-    const reader = resp.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    while (true) {
-        const { done, value } = await reader.read();
-        if (done)
-            break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-        for (const line of lines) {
-            if (!line.trim())
-                continue;
-            try {
-                const parsed = JSON.parse(line);
-                if (parsed.message?.content) {
-                    yield parsed.message.content;
+    // Abort controller for timeout
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT_MS);
+    try {
+        const resp = await fetch(`${OLLAMA_URL}/api/chat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                model: modelName,
+                messages,
+                stream: true,
+                options: {
+                    num_ctx: OLLAMA_NUM_CTX, // Must set explicitly — Ollama defaults to 2048!
+                },
+            }),
+            signal: controller.signal,
+        });
+        if (!resp.ok || !resp.body) {
+            throw new Error(`Ollama chat failed: ${resp.statusText}`);
+        }
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done)
+                break;
+            // Reset timeout on each chunk received (the model is actively generating)
+            clearTimeout(timeout);
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+            for (const line of lines) {
+                if (!line.trim())
+                    continue;
+                try {
+                    const parsed = JSON.parse(line);
+                    if (parsed.message?.content) {
+                        yield parsed.message.content;
+                    }
+                }
+                catch {
+                    // skip malformed lines
                 }
             }
-            catch {
-                // skip malformed lines
-            }
         }
+    }
+    finally {
+        clearTimeout(timeout);
     }
 }
 //# sourceMappingURL=ollama.js.map

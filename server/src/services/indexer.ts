@@ -10,9 +10,16 @@ import {
   getFile, removeFile, getAllFiles,
 } from './database.js';
 import { EventEmitter } from 'events';
+import { invalidateChunkCache } from './retrieval.js';
 
 export const indexEvents = new EventEmitter();
 indexEvents.setMaxListeners(50);
+
+// Build the text that gets embedded — includes the file path so that
+// folder names (trip destinations, dates, project names) become searchable.
+function embeddableText(filePath: string, content: string): string {
+  return `File: ${filePath}\n\n${content}`;
+}
 
 export interface IndexProgress {
   phase: string;
@@ -140,7 +147,7 @@ export async function indexFolder(folder: string): Promise<void> {
           message: `Creating private search index: ${relPath} (chunk ${j + 1}/${chunks.length})...`,
         });
 
-        const embedding = await embed(chunk.content);
+        const embedding = await embed(embeddableText(filePath, chunk.content));
         const embBuffer = embeddingToBuffer(embedding);
 
         insertChunk(
@@ -163,6 +170,7 @@ export async function indexFolder(folder: string): Promise<void> {
     }
   }
 
+  invalidateChunkCache();
   emitProgress({ phase: 'done', current: files.length, total: files.length, message: 'Done. You can now ask questions.' });
 }
 
@@ -187,7 +195,7 @@ export async function indexSingleFile(filePath: string, folder: string): Promise
     deleteChunksForFile(filePath);
 
     for (const chunk of chunks) {
-      const embedding = await embed(chunk.content);
+      const embedding = await embed(embeddableText(filePath, chunk.content));
       const embBuffer = embeddingToBuffer(embedding);
       insertChunk(filePath, chunk.metadata.chunk_index, chunk.content, JSON.stringify(chunk.metadata), chunk.metadata.content_hash, embBuffer);
     }
@@ -196,6 +204,7 @@ export async function indexSingleFile(filePath: string, folder: string): Promise
     upsertFile(filePath, ext, lastModified, 'indexed');
     log.info(`Indexed: ${relPath} (${chunks.length} chunks)`);
 
+    invalidateChunkCache();
     indexEvents.emit('progress', {
       phase: 'update',
       current: 1,
@@ -212,6 +221,7 @@ export async function indexSingleFile(filePath: string, folder: string): Promise
 export function removeFileFromIndex(filePath: string, folder: string): void {
   const relPath = path.relative(folder, filePath);
   removeFile(filePath);
+  invalidateChunkCache();
   log.info(`Removed from index: ${relPath}`);
   indexEvents.emit('progress', {
     phase: 'update',

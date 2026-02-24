@@ -44,6 +44,15 @@ export async function togglePrivacyMode(enabled: boolean) {
   return resp.json();
 }
 
+export async function openFile(filePath: string) {
+  const resp = await fetch(`${BASE}/api/open-file`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ filePath }),
+  });
+  return resp.json();
+}
+
 export function createEventSource(): EventSource {
   return new EventSource(`${BASE}/api/events`);
 }
