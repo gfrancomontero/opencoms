@@ -1,4 +1,4 @@
-# OpenComs
+# opencoms
 
 **Fully local, private document chat for macOS.** Ask questions about your PDFs, Word docs, and spreadsheets — everything runs on your computer.
 
